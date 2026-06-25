@@ -1,3 +1,4 @@
+from pathlib import Path
 import re
 from enum import Enum, auto
 from queue import Queue
@@ -7,6 +8,7 @@ from Scheduler import Scheduler
 from AS import AS
 from Interpreter import Interpreter
 from Extension import Extension
+from scripts import EnvironmentHandler
 
 
 class CommandType(Enum):
@@ -21,12 +23,31 @@ class CommandType(Enum):
 
 
 class Engine:
-    __slots__ = ("threadNum", "batchSize", "taskQueue", "scheduler", "command", "prefixInMem", "prefixInDB")
+    __slots__ = (
+        "threadNum",
+        "batchSize",
+        "taskQueue",
+        "scheduler",
+        "settings",
+        "descriptionPath",
+        "prefixesFile",
+        "command",
+        "prefixInMem",
+        "prefixInDB",
+    )
 
-    def __init__(self, config):
+    def __init__(self, env: EnvironmentHandler):
 
-        self.threadNum = int(config["Setting"]["threadNum"])
-        self.batchSize = int(config["Setting"]["batchSize"])  # -1 means do not enable offloading
+        self.settings = env.get("Setting")
+
+        self.prefixesFile = env.getPrefixesFilePath()
+
+        self.descriptionPath = Path(env["Path"].get("descriptionFilePath"))
+
+        self.threadNum = int(self.settings.get("threadNum"))
+        self.batchSize = int(
+            self.settings.get("batchSize")
+        )  # -1 means do not enable offloading
 
         self.taskQueue = Queue()
         self.scheduler = Scheduler()
@@ -42,17 +63,20 @@ class Engine:
             ("Change non-BGP policy:", CommandType.CHANGE_NON_BGP_POLICY),
             ("AS (\d+) show peers;", CommandType.SHOW_PEERS),
             ("AS (\d+) show routes (.+);", CommandType.SHOW_ROUTES),
-            ("Store;", CommandType.STORE)
+            ("Store;", CommandType.STORE),
         ]
 
-    def parseDescriptionFile(self, descriptionFilePath, topology):
-        with open(descriptionFilePath, "r") as f:
-
-            policyFlag = None  # Mark the type of the strategy block, None means no read-in
+    def parseDescriptionFile(self, topology):
+        with (
+            self.descriptionPath.open("r") as f,
+            self.prefixesFile.open("a") as prefixesOut,
+        ):
+            policyFlag = (
+                None  # Mark the type of the strategy block, None means no read-in
+            )
             policy = ""
 
             for line in f:
-
                 if line.startswith("#") or not line.strip():
                     continue
 
@@ -76,8 +100,8 @@ class Engine:
 
                         elif policyFlag == CommandType.CHANGE_NON_BGP_POLICY:
                             ASes = interpreter.changeNonBGPPolicy(topology, policy)
-                            
-                            self.simulate(topology, "change", {"ROV ASes" : ASes})
+
+                            self.simulate(topology, "change", {"ROV ASes": ASes})
 
                         policyFlag = None
                         policy = ""
@@ -88,25 +112,23 @@ class Engine:
                     continue
 
                 for command in self.command:
-
                     result = re.match(command[0], line)
 
                     if result:
-
                         flag = True
 
                         if command[1] == CommandType.ANNOUNCE:
-
                             ASN = int(result.group(1))
                             prefix = result.group(2)
 
                             if ASN not in topology.ASes:
                                 raise ValueError(f"Invalid AS number: {ASN}")
 
+                            prefixesOut.write(f"{prefix}\n")
+
                             self.taskQueue.put(("Announce", ASN, prefix))
 
                         elif command[1] == CommandType.WITHDRAW:
-
                             ASN = int(result.group(1))
                             prefix = result.group(2)
 
@@ -119,15 +141,12 @@ class Engine:
                             self.simulate(topology)
 
                         elif command[1] == CommandType.CHANGE_ROUTING_POLICY:
-
                             policyFlag = CommandType.CHANGE_ROUTING_POLICY
 
                         elif command[1] == CommandType.CHANGE_NON_BGP_POLICY:
-
                             policyFlag = CommandType.CHANGE_NON_BGP_POLICY
 
                         elif command[1] == CommandType.SHOW_PEERS:
-
                             ASN = int(result.group(1))
 
                             if ASN not in topology.ASes:
@@ -142,7 +161,6 @@ class Engine:
                             print(f"AS {ASN}'s peers: {ASNlist}")
 
                         elif command[1] == CommandType.SHOW_ROUTES:
-
                             ASN = int(result.group(1))
                             prefix = result.group(2)
 
@@ -151,27 +169,24 @@ class Engine:
 
                             print(f"AS {ASN}'s route to {prefix}:")
 
-                            if (self.batchSize==-1):
+                            if self.batchSize == -1:
                                 topology.ASes[ASN].showRoute(prefix)
-                            
-                            else:
 
+                            else:
                                 if prefix not in self.prefixInDB:
                                     topology.ASes[ASN].showRoute(prefix)
-                                
-                                else:
 
+                                else:
                                     topology.ASes[ASN].showRouteInDB(prefix)
-                            
+
                         elif command[1] == CommandType.STORE:
-                                
                             for AS in topology.ASes:
                                 self.scheduler.push(("Store", AS))
-    
+
                             self.prefixInDB.update(self.prefixInMem)
-    
+
                             self.scheduler.process(self.threadNum)
-    
+
                             self.prefixInMem.clear()
 
                 if not flag:
@@ -180,30 +195,30 @@ class Engine:
     def simulate(self, topology, type=None, args=None):
 
         print("Simulation start")
-        
-        if (type == "change"):
 
+        if type == "change":
             invalidSet = Extension.getInvalidSet()
             tmpQueue = Queue()
             ASes = args["ROV ASes"]
 
-            if (self.batchSize != -1):
-                
+            if self.batchSize != -1:
                 needFetch = set()
                 for attackerAS, prefix in invalidSet:
-                    if (prefix in self.prefixInDB):
+                    if prefix in self.prefixInDB:
                         needFetch.add(prefix)
-                    
+
                     else:
                         for AS in ASes:
                             if attackerAS == topology.ASes[AS].getOriginAS(prefix):
-                                self.taskQueue.put(("Withdraw", AS, str(attackerAS), prefix))
+                                self.taskQueue.put(
+                                    ("Withdraw", AS, str(attackerAS), prefix)
+                                )
 
                 while not self.taskQueue.empty():
                     task = self.taskQueue.get()
                     tmpQueue.put(("UpdateBest", task[1], task[3]))
                     self.scheduler.push(task)
-                
+
                 self.scheduler.process(self.threadNum)
 
                 while not tmpQueue.empty():
@@ -211,8 +226,7 @@ class Engine:
 
                 self.scheduler.process(self.threadNum)
 
-                while (needFetch):
-
+                while needFetch:
                     for AS in topology.ASes:
                         self.scheduler.push(("Store", AS))
 
@@ -222,12 +236,12 @@ class Engine:
 
                     k = 0
                     prefixes = []
-                    while (k < self.batchSize):
+                    while k < self.batchSize:
                         prefixes.append(needFetch.pop())
                         k += 1
-                        if (not needFetch):
+                        if not needFetch:
                             break
-                    
+
                     for AS in topology.ASes:
                         self.scheduler.push(("Fetch", AS, prefixes))
 
@@ -235,32 +249,35 @@ class Engine:
 
                     self.prefixInMem = set(prefixes)
                     self.prefixInDB -= self.prefixInMem
-                    
+
                     for attackerAS, prefix in invalidSet:
-                        if (prefix in prefixes):
+                        if prefix in prefixes:
                             for AS in ASes:
                                 if attackerAS == topology.ASes[AS].getOriginAS(prefix):
-                                    self.taskQueue.put(("Withdraw", AS, str(attackerAS), prefix))
-                            
+                                    self.taskQueue.put(
+                                        ("Withdraw", AS, str(attackerAS), prefix)
+                                    )
+
                     while not self.taskQueue.empty():
                         task = self.taskQueue.get()
                         tmpQueue.put(("UpdateBest", task[1], task[3]))
                         self.scheduler.push(task)
-                    
+
                     self.scheduler.process(self.threadNum)
 
                     while not tmpQueue.empty():
                         self.scheduler.push(tmpQueue.get())
 
                     self.scheduler.process(self.threadNum)
-                
+
             else:
-                                
                 for attackerAS, prefix in invalidSet:
                     for AS in ASes:
                         if attackerAS == topology.ASes[AS].getOriginAS(prefix):
-                            self.taskQueue.put(("Withdraw", AS, str(attackerAS), prefix))
-                
+                            self.taskQueue.put(
+                                ("Withdraw", AS, str(attackerAS), prefix)
+                            )
+
                 while not self.taskQueue.empty():
                     task = self.taskQueue.get()
                     tmpQueue.put(("UpdateBest", task[1], task[3]))
@@ -272,19 +289,17 @@ class Engine:
                     self.scheduler.push(tmpQueue.get())
 
                 self.scheduler.process(self.threadNum)
-                
-        elif (type == "refresh"):
 
-            if (self.batchSize != -1):
+        elif type == "refresh":
+            if self.batchSize != -1:
                 needFetch = set(self.prefixInDB)
-                
+
                 for task in self.taskQueue.queue:
                     self.scheduler.push(task)
-                
+
                 self.scheduler.process(self.threadNum)
 
-                while (needFetch):
-
+                while needFetch:
                     for AS in topology.ASes:
                         self.scheduler.push(("Store", AS))
 
@@ -294,12 +309,12 @@ class Engine:
 
                     k = 0
                     prefixes = []
-                    while (k < self.batchSize):
+                    while k < self.batchSize:
                         prefixes.append(needFetch.pop())
                         k += 1
-                        if (not needFetch):
+                        if not needFetch:
                             break
-                    
+
                     for AS in topology.ASes:
                         self.scheduler.push(("Fetch", AS, prefixes))
 
@@ -307,10 +322,10 @@ class Engine:
 
                     self.prefixInMem = set(prefixes)
                     self.prefixInDB -= self.prefixInMem
-                    
+
                     for task in self.taskQueue.queue:
                         self.scheduler.push(task)
-                    
+
                     self.scheduler.process(self.threadNum)
 
             else:
@@ -319,40 +334,39 @@ class Engine:
 
                 self.scheduler.process(self.threadNum)
         else:
-
-            if (self.batchSize != -1):
+            if self.batchSize != -1:
                 needFetch = set()
                 tmpQueue = Queue()
-                
+
                 while not self.taskQueue.empty():
-                    
                     task = self.taskQueue.get()
                     tmpQueue.put(task)
                     prefix = task[2]
-                    
-                    if (prefix not in self.prefixInDB):
+
+                    if prefix not in self.prefixInDB:
                         if prefix not in self.prefixInMem:
                             self.prefixInMem.add(prefix)
                     else:
                         self.prefixInDB.remove(prefix)
                         needFetch.add(prefix)
 
-                    if (len(self.prefixInMem) + len(needFetch)==self.batchSize) or self.taskQueue.empty():
-
-                        if (len(needFetch) > 0):
+                    if (
+                        len(self.prefixInMem) + len(needFetch) == self.batchSize
+                    ) or self.taskQueue.empty():
+                        if len(needFetch) > 0:
                             for AS in topology.ASes:
                                 self.scheduler.push(("Fetch", AS, needFetch))
 
                             self.prefixInMem.update(needFetch)
                             needFetch.clear()
                             self.scheduler.process(self.threadNum)
-                        
+
                         while not tmpQueue.empty():
                             self.scheduler.push(tmpQueue.get())
 
                         self.scheduler.process(self.threadNum)
 
-                        if len(self.prefixInMem)==self.batchSize:
+                        if len(self.prefixInMem) == self.batchSize:
                             for AS in topology.ASes:
                                 self.scheduler.push(("Store", AS))
 
@@ -360,16 +374,14 @@ class Engine:
                             self.prefixInMem.clear()
 
                             self.scheduler.process(self.threadNum)
-            
-            else:
 
+            else:
                 while not self.taskQueue.empty():
-                    
                     self.scheduler.push(self.taskQueue.get())
 
                 self.scheduler.process(self.threadNum)
 
         print("Simulation complete")
 
-    def run(self, config, topology):
-        self.parseDescriptionFile(config["Path"]["descriptionFilePath"], topology)
+    def run(self, topology):
+        self.parseDescriptionFile(topology)

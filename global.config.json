@@ -1,0 +1,12 @@
+{
+  "baseSimulationPath": "/tmp/simulations",
+  "baseDatabasesDirName": "database",
+  "baseExperimentsDirName": "experiments",
+
+  "experimentDirStructure": {
+    "dir": {
+      "logsDirPath": "logs",
+      "metricsDirPath": "metrics"
+    }
+  }
+}

@@ -9,6 +9,8 @@ import configparser
 import time
 import random
 
+from scripts import EnvironmentHandler, HelperProxy
+
 
 def generate_random_prefix():
     subnet = random.randint(1, 32)
@@ -29,12 +31,43 @@ def generate_random_prefix():
 
 
 if __name__ == "__main__":
-    config = configparser.ConfigParser()
-    config.read("config.ini")
+    # config = configparser.ConfigParser()
+    # config.read("config.ini")
+
+    env = EnvironmentHandler()
+    env.setupSimulatorPaths()
 
     topology = Topology()
-    interpreter = Interpreter()
-    interpreter.loadRoutingInformation(config, topology)
+    interpreter = Interpreter(env=env)
+    interpreter.loadRoutingInformation(topology)
 
-    engine = Engine(config)
-    engine.run(config, topology)
+    util = HelperProxy()
+    args = util.parserArgs()
+
+    if args.new_db:
+        util.createNewDB(env=env)
+
+    elif not env.getDbDirName():
+        util.selectAvailableDB(env=env)
+
+    if args.gen_prefixes:
+        prefixes = util.generateNotOverlappingPrefixes(
+            numb=args.n_prefixes,
+            asn=list(topology.ASes.keys()),
+            seed=15,
+        )
+
+        util.generateDescriptionFile(env=env, prefixToAsn=prefixes)
+
+    mongoPid = util.runMongoDB(env=env)
+    print(f"MongoDB PID: {mongoPid}")
+
+    engine = Engine(env=env)
+    if not args.new_db and env.getDbDirName():
+        util.resumeFromOldDB(env=env, engine=engine)
+
+    util.createNewExperiment(env)
+
+    engine.run(topology)
+
+    util.decouplePrefixFile(env)

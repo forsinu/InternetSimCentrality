@@ -1,0 +1,21 @@
+{
+  "dbDirName": null,
+  "experimentDirName": null,
+
+  "Path": {
+    "ASRelFilePath": "data/20240501.as-rel.txt",
+    "policyFilePath": null,
+    "ASSetFilePath": null,
+    "ROVSetFilePath": null,
+    "InvalidSetFilePath": null,
+    "descriptionFilePath": "description/description_1.txt",
+
+    "prefixesFilePath": "prefixes.txt"
+  },
+
+  "Setting": {
+    "threadNum": 32,
+    "batchSize": 3,
+    "cacheDbSizeGb": 40
+  }
+}

@@ -2,3 +2,4 @@
 **/*.so
 **/build
 **/*.cpp
+**/__pycache__/

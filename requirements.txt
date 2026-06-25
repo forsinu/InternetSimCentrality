@@ -1,0 +1,4 @@
+pytest-shutil
+Cython
+setuptools
+pymongo

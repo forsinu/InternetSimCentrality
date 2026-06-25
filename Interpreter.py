@@ -4,6 +4,8 @@ from enum import Enum, auto
 from Topology import Topology
 from AS import AS
 from Extension import Extension
+from scripts import EnvironmentHandler
+
 
 class Policy(Enum):
     AS_PEER = auto()
@@ -13,7 +15,9 @@ class Policy(Enum):
     REMOVE_RULE = auto()
     SHOW_RULE = auto()
 
+
 peers = set()
+
 
 class PolicyBlock:
     __slots__ = ("value", "subBlock")
@@ -50,14 +54,13 @@ class PolicyBlock:
         global peers
 
         while True:
-
             try:
                 line = next(content).strip()
 
             except StopIteration:
                 if self.value == "root":
                     return
-                
+
                 else:
                     raise SyntaxError("Unexpected end of policy")
 
@@ -68,15 +71,12 @@ class PolicyBlock:
 
             for subBlock in self.subBlock:
                 for item in subBlock.value:
-
                     result = re.match(item[0], line)
 
                     if result:
-
                         flag = True
 
                         if item[1] == Policy.AS_PEER:
-
                             ASNx = int(result.group(1))
                             ASNy = int(result.group(2))
 
@@ -93,7 +93,6 @@ class PolicyBlock:
                             )
 
                         elif item[1] == Policy.FILTER_IN:
-
                             # args[0] = ASNx, args[1] = ASNy (peer AS)
                             peers.add((args[0], args[1]))
 
@@ -104,7 +103,6 @@ class PolicyBlock:
                             )
 
                         elif item[1] == Policy.FILTER_OUT:
-
                             # args[0] = ASNx, args[1] = ASNy (peer AS)
                             peers.add((args[1], args[0]))
 
@@ -115,7 +113,6 @@ class PolicyBlock:
                             )
 
                         elif item[1] == Policy.ADD_RULE:
-
                             while True:
                                 line = next(content).strip()
 
@@ -165,11 +162,9 @@ class PolicyBlock:
                                     topology.policyNum += 1
 
                                 else:
-
                                     raise SyntaxError(f"Invalid action: {line}")
 
                         elif item[1] == Policy.REMOVE_RULE:
-
                             ruleNum = result.group(1)
 
                             # args[0] = ASNx, args[1] = ASNy (peer AS), args[2] = IN/OUT (filter type)
@@ -177,11 +172,10 @@ class PolicyBlock:
                                 args[1], args[2], ruleNum
                             ):
                                 raise ValueError(f"Invalid rule number: {ruleNum}")
-                            
+
                             topology.policyNum -= 1
 
                         elif item[1] == Policy.SHOW_RULE:
-
                             # args[0] = ASNx, args[1] = ASNy (peer AS), args[2] = IN/OUT (filter type)
                             filter = topology.ASes[args[0]].getFilter(args[1], args[2])
 
@@ -191,7 +185,6 @@ class PolicyBlock:
                                 )
 
                             else:
-
                                 for rule in enumerate(filter):
                                     print(
                                         f'AS {args[0]} peer AS {args[1]} {args[2]} rule {rule[0]}: match "{rule[1][0]}", action "{rule[1][1]}"'
@@ -200,7 +193,8 @@ class PolicyBlock:
             if not flag:
                 raise SyntaxError(f"Invalid command in Routing Policy: {line}")
 
-'''
+
+"""
 from prompt_toolkit import prompt
 from prompt_toolkit.history import InMemoryHistory
 
@@ -457,43 +451,46 @@ class CommandLine:
         while True:
             rootCommand.parse("InternetSim")
             break
-'''
+"""
+
 
 class Interpreter:
-    __slots__ = "policyBlock"
+    __slots__ = ("paths", "policyBlock")
 
-    def __init__(self):
+    def __init__(self, env: EnvironmentHandler | None = None):
+        self.paths = env.getExperimentPaths() if env else {}
+
         self.policyBlock = PolicyBlock("root")
         self.policyBlock.init()
 
-    def loadRoutingInformation(self, config, topology):
+    def loadRoutingInformation(self, topology):
 
-        ASRelFilePath = config["Path"]["ASRelFilePath"]
-        policyFilePath = config["Path"].get("policyFilePath")
-        ASSetFilePath = config["Path"].get("ASSetFilePath")
+        ASRelFilePath = self.paths.get("ASRelFilePath")
+        policyFilePath = self.paths.get("policyFilePath")
+        ASSetFilePath = self.paths.get("ASSetFilePath")
 
-        ROVSetFilePath = config["Path"].get("ROVSetFilePath")
-        invalidSetFilePath = config["Path"].get("invalidSetFilePath")
+        ROVSetFilePath = self.paths.get("ROVSetFilePath")
+        invalidSetFilePath = self.paths.get("invalidSetFilePath")
 
         try:
             with open(ASRelFilePath, "r") as f:
-
                 lineNum = 0
 
                 for line in f:
-
                     lineNum += 1
-                    line=line.strip()
+                    line = line.strip()
 
                     if line.startswith("#") or not line:
                         continue
-                    
+
                     try:
-                        parts=line.split("|")
+                        parts = line.split("|")
 
                         if len(parts) != 3:
-                             raise ValueError(f"ValueError: Invalid format in ASRelFile at line {lineNum}: '{line}'")
-                        
+                            raise ValueError(
+                                f"ValueError: Invalid format in ASRelFile at line {lineNum}: '{line}'"
+                            )
+
                         ASNxStr, ASNyStr, relationshipStr = parts
                         ASNx = int(ASNxStr)
                         ASNy = int(ASNyStr)
@@ -502,45 +499,44 @@ class Interpreter:
                         topology.addAS(int(ASNx), int(ASNy), int(relationship))
 
                     except ValueError as e:
+                        raise ValueError(
+                            f"ValueError: Data conversion error in ASRelFile at line {lineNum}: {line} ({e})"
+                        )
 
-                         raise ValueError(f"ValueError: Data conversion error in ASRelFile at line {lineNum}: {line} ({e})")
-                    
                     except Exception as e:
-                         
-                         raise RuntimeError(f"RuntimeError: Error parsing ASRelFile at line {lineNum}: {line} ({e})")
+                        raise RuntimeError(
+                            f"RuntimeError: Error parsing ASRelFile at line {lineNum}: {line} ({e})"
+                        )
 
                 print(f"Loaded {topology.ASNum} ASes, {topology.linkNum} links")
-        
+
         except FileNotFoundError:
             raise FileNotFoundError(f"ASRelFile not found: {ASRelFilePath}")
-        
+
         except Exception as e:
             raise RuntimeError(f"Error reading ASRelFile: {ASRelFilePath} ({e})")
 
         if policyFilePath:
-
             try:
                 with open(policyFilePath, "r") as f:
                     content = iter(f.readlines())
                     self.policyBlock.parse(content, topology)
 
                 print(f"Loaded {topology.policyNum} rules")
-            
+
             except FileNotFoundError:
                 raise FileNotFoundError(f"policyFile not found: {policyFilePath}")
-            
+
             except Exception as e:
                 raise RuntimeError(f"Error reading policyFile: {ASRelFilePath} ({e})")
-            
-
 
         if ASSetFilePath:
             try:
                 AS.loadASSet(ASSetFilePath)
-            
+
             except FileNotFoundError:
                 raise FileNotFoundError(f"ASSetFile not found: {ASSetFilePath}")
-            
+
             except Exception as e:
                 raise RuntimeError(f"Error reading ASSetFile: {ASSetFilePath} ({e})")
 
@@ -550,19 +546,23 @@ class Interpreter:
 
             except FileNotFoundError:
                 raise FileNotFoundError(f"ROVSetFile not found: {ROVSetFilePath}")
-            
+
             except Exception as e:
                 raise RuntimeError(f"Error reading ROVSetFile: {ROVSetFilePath} ({e})")
 
         if invalidSetFilePath:
             try:
                 Extension.loadInvalidSet(invalidSetFilePath)
-            
+
             except FileNotFoundError:
-                raise FileNotFoundError(f"invalidSetFile not found: {invalidSetFilePath}")
-            
+                raise FileNotFoundError(
+                    f"invalidSetFile not found: {invalidSetFilePath}"
+                )
+
             except Exception as e:
-                raise RuntimeError(f"Error reading invalidSetFile: {invalidSetFilePath} ({e})")
+                raise RuntimeError(
+                    f"Error reading invalidSetFile: {invalidSetFilePath} ({e})"
+                )
 
     def changeRoutingPolicy(self, topology, policy):
         content = iter(policy.splitlines())
@@ -585,7 +585,7 @@ class Interpreter:
             result = re.match("AS (\d+) enable ROV", line)
 
             if result:
-                ASNStr= result.group(1)
+                ASNStr = result.group(1)
 
                 try:
                     ASN = int(ASNStr)
@@ -594,15 +594,17 @@ class Interpreter:
                     ASes.add(ASN)
 
                     continue
-                
+
                 except ValueError:
-                    raise ValueError(f"Invalid AS number {ASNStr} in Non-BGP Policy: {line}")
-                
+                    raise ValueError(
+                        f"Invalid AS number {ASNStr} in Non-BGP Policy: {line}"
+                    )
+
                 except Exception as e:
                     raise RuntimeError(f"Error {e} in Non-BGP Policy: {line}")
 
             elif line == "end":
                 return ASes
-            
+
             else:
                 raise SyntaxError(f"Invalid command in Non-BGP Policy: {line}")

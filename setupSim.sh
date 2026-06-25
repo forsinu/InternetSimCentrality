@@ -28,7 +28,7 @@ echo "[+] Activate Virtual Environment and install necessary dependencies"
 source "${VENV_DIR%/}/bin/activate"
 
 pip install --upgrade pip
-pip install Cython setuptools pymongo
+pip install -r "${ROOT_DIR%/}/requirements.txt"
 
 echo "[+] Compile and setup the simulator"
 
