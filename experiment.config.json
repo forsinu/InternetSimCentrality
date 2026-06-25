@@ -10,7 +10,8 @@
     "InvalidSetFilePath": null,
     "descriptionFilePath": "description/description_1.txt",
 
-    "prefixesFilePath": "prefixes.txt"
+    "prefixesFilePath": "prefixes.txt",
+    "bestRoutesFilePath": "bestRoutes/bestRoutes.json"
   },
 
   "Setting": {

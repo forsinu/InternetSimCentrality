@@ -1,4 +1,5 @@
 import json
+from Route cimport PyRoute, Route
 
 cdef class AS:
     def __cinit__(self, ASN):
@@ -995,3 +996,14 @@ cdef class AS:
 
     def getOriginAS(self, prefix):
         return routeTables[self.ASN].getOriginAS(prefix.encode("utf-8"))
+
+    def getBestRoute(self, prefix):
+        cdef shared_ptr[Route] route
+        
+        # Safely fetch using the internal mutex lock for this AS
+        locks[self.ASN].lock()
+        route = routeTables[self.ASN].getBestRoute(prefix.encode('utf-8'))
+        locks[self.ASN].unlock()
+        
+        # Return the Python wrapper object
+        return PyRoute.create(route)

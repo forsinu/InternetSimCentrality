@@ -26,3 +26,9 @@ cdef extern from "../cpp/Route.h":
         bool operator<(shared_ptr[Route])
 
         bool operator<(Route&)
+
+cdef class PyRoute:
+    cdef shared_ptr[Route] _ptr
+    
+    @staticmethod
+    cdef PyRoute create(shared_ptr[Route] c_route)

@@ -1,4 +1,6 @@
+from collections import defaultdict
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from uuid import uuid4
 import os
@@ -478,3 +480,108 @@ class HelperProxy:
             raise ChildProcessError(
                 f"Not able to decouple prefixes inside {str(prefixesFilePath)}"
             )
+
+    @staticmethod
+    def extractBestRoutes(topology, env: EnvironmentHandler, engine: Engine):
+        inputPrefixesPath = env.getPrefixesFilePath()
+
+        inputStream = inputPrefixesPath.open("r")
+        prefixes = [line.strip() for line in inputStream.readlines()]
+        inputStream.close()
+
+        if not prefixes or not topology.ASes:
+            print("[-] Error: Prefixes list or Topology ASes are empty.")
+            return
+
+        print(
+            f"[+] Loading DB routes into memory for {len(topology.ASes)} ASes and {len(prefixes)} prefixes..."
+        )
+
+        engine.prefixInDB = set(prefixes)
+        engine.prefixInMem.clear()
+
+        bs = engine.batchSize if engine.batchSize != -1 else len(prefixes)
+
+        bestRouterOutPath = env.getExperimentBestRoutePaths()
+
+        parentDir = bestRouterOutPath.parent
+        parentDir.mkdir(exist_ok=True, parents=True)
+
+        fileStem = bestRouterOutPath.stem
+        fileSuffix = bestRouterOutPath.suffix
+
+        fileCount = 1
+        maxFileSize = 200 * 1024 * 1024
+
+        bestRoutes = defaultdict(dict)
+
+        for idx in range(0, len(prefixes), bs):
+            chunk = prefixes[idx : idx + bs]
+
+            for aut in topology.ASes:
+                engine.scheduler.push(("Fetch", aut, chunk))
+
+            if bs != -1:
+                engine.prefixInMem = set(chunk)
+                engine.prefixInDB.difference_update(engine.prefixInMem)
+
+            engine.scheduler.process(engine.threadNum)
+
+            for aut in topology.ASes:
+                for prefix in chunk:
+                    try:
+                        routeInfo = topology.ASes[aut].getBestRoute(prefix)
+                        if routeInfo is not None:
+                            bestRoutes[aut][prefix] = routeInfo.ASPath
+                    except AttributeError:
+                        pass
+
+            if bestRoutes:
+                # Convert to JSON text first, so we can check its size.
+                jsonContent = json.dumps(
+                    bestRoutes,
+                    indent=2,
+                )
+
+                serialized_size = len(jsonContent.encode("utf-8"))
+
+                if serialized_size >= maxFileSize:
+                    currOutPath = parentDir / f"{fileCount:02d}_{fileStem}.{fileSuffix}"
+
+                    with currOutPath.open("w", encoding="utf-8") as outputFile:
+                        outputFile.write(jsonContent)
+
+                    print(
+                        f"[+] File limit reached. Written {currOutPath} "
+                        f"({serialized_size / (1024 * 1024):.2f} MB)"
+                    )
+
+                    fileCount += 1
+                    bestRoutes = defaultdict(dict)
+
+            if engine.batchSize != -1:
+                for aut in topology.ASes:
+                    engine.scheduler.push(("Store", aut))
+                engine.scheduler.process(engine.threadNum)
+
+                engine.prefixInDB.update(engine.prefixInMem)
+                engine.prefixInMem.clear()
+
+        # Write any remaining data left over in the final iteration
+        if bestRoutes:
+            # Convert to JSON text first, so we can check its size.
+            jsonContent = json.dumps(
+                bestRoutes,
+                indent=2,
+            )
+
+            currOutPath = parentDir / f"{fileCount:02d}_{fileStem}.{fileSuffix}"
+
+            with currOutPath.open("w", encoding="utf-8") as outputFile:
+                outputFile.write(jsonContent)
+
+            print(
+                f"[+] Batch extraction finished. Written final file {currOutPath} ({serialized_size / (1024 * 1024):.2f} MB)"
+            )
+
+        print("[+] Batch extraction completed successfully.")

@@ -71,3 +71,9 @@ if __name__ == "__main__":
     engine.run(topology)
 
     util.decouplePrefixFile(env)
+
+    util.extractBestRoutes(
+        topology=topology,
+        engine=engine,
+        env=env,
+    )

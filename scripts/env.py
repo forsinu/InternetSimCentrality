@@ -93,3 +93,9 @@ class EnvironmentHandler:
 
     def setMongoPid(self, pid: int | None):
         self.mongoPid = pid
+
+    def getExperimentBestRoutePaths(self) -> Path:
+        return self.getExperimentDirPath() / self.getExperimentPaths().get(
+            "bestRoutesFilePath",
+            "bestRoutes/bestRoutes.json",
+        )
