@@ -1,5 +1,19 @@
 #include "RouteTable.h"
 
+namespace
+{
+    template <typename StringView>
+    std::string bsonViewToString(const StringView &value)
+    {
+        if (value.size() == 0)
+        {
+            return std::string();
+        }
+
+        return std::string(value.data(), value.size());
+    }
+}
+
 RouteTable::RouteTable(int ASN)
 {
     this->ASN = ASN;
@@ -345,15 +359,15 @@ void RouteTable::showRouteInDB(const string &prefix)
                 {
                     bsoncxx::document::view routeView = route.get_document().value;
                     item = "Route(prefix=" + prefix + ", ";
-                    item += "origin=" + string(routeView["origin"].get_string().value) + ", ";
+                    item += "origin=" + bsonViewToString(routeView["origin"].get_string().value) + ", ";
                     item += "localPref=" + to_string(routeView["localPref"].get_int32().value) + ", ";
 
                     auto ASPathView = routeView["ASPath"].get_array().value;
 
-                    vector<string_view> ASPath;
+                    vector<string> ASPath;
                     for (const auto &element : ASPathView)
                     {
-                        ASPath.push_back(element.get_string().value);
+                        ASPath.push_back(bsonViewToString(element.get_string().value));
                     }
                     for (auto it = ASPath.rbegin(); it != ASPath.rend(); ++it)
                     {
@@ -523,9 +537,9 @@ void RouteTable::showBestRoute(const string &subPre)
            bstRt->community.c_str());
 }
 
-vector<shared_ptr<Route> > RouteTable::getRoutes(const string &prefix)
+vector<shared_ptr<Route>> RouteTable::getRoutes(const string &prefix)
 {
-    vector<shared_ptr<Route> > routes;
+    vector<shared_ptr<Route>> routes;
     if (prefix != "")
     {
         unsigned int prefixKey = Trie::getKey(prefix);
@@ -670,19 +684,19 @@ void RouteTable::store2DB()
 
         bsoncxx::builder::basic::document update_doc{};
         bsoncxx::builder::basic::document set_doc{};
-        
+
         set_doc.append(bsoncxx::builder::basic::kvp("AS", (int32_t)this->ASN));
         set_doc.append(bsoncxx::builder::basic::kvp("prefix", Trie::getValue(item.first)));
-        
+
         bsoncxx::builder::basic::array routes{};
         adjRIB[item.first].store2DB(routes);
         set_doc.append(bsoncxx::builder::basic::kvp("route", routes));
-        
+
         update_doc.append(bsoncxx::builder::basic::kvp("$set", set_doc));
 
         mongocxx::model::update_one update_op(filter.extract(), update_doc.extract());
         update_op.upsert(true);
-        
+
         updates.emplace_back(std::move(update_op));
     }
 
@@ -766,19 +780,19 @@ void RouteTable::fetchFromDB(const vector<string> &prefixes)
             bsoncxx::document::element routes = view["route"];
             bsoncxx::array::view routesView = routes.get_array().value;
 
-            rt->prefix = view["prefix"].get_string().value;
+            rt->prefix = bsonViewToString(view["prefix"].get_string().value);
 
             for (const bsoncxx::array::element &route : routesView)
             {
                 bsoncxx::document::view routeView = route.get_document().value;
-                rt->origin = routeView["origin"].get_string().value;
+                rt->origin = bsonViewToString(routeView["origin"].get_string().value);
                 rt->localPref = routeView["localPref"].get_int32().value;
                 auto ASPathView = routeView["ASPath"].get_array().value;
 
-                vector<string_view> ASPath;
+                vector<string> ASPath;
                 for (const auto &element : ASPathView)
                 {
-                    ASPath.push_back(element.get_string().value);
+                    ASPath.push_back(bsonViewToString(element.get_string().value));
                 }
 
                 for (auto it = ASPath.rbegin(); it != ASPath.rend(); ++it)

@@ -8,7 +8,7 @@ common_link_args = ["-lmongocxx", "-lbsoncxx", "-lpthread"]
 common_include_dirs = [
     "/usr/local/include/mongocxx/v_noabi",
     "/usr/local/include/bsoncxx/v_noabi",
-    "./parallel_hashmap"
+    "./parallel_hashmap",
 ]
 
 cython_dirs = "cython"
