@@ -453,6 +453,8 @@ class HelperProxy:
 
         parser.add_argument("--n-prefixes", type=int)
 
+        parser.add_argument("--seed", type=int, default=14)
+
         args = parser.parse_args()
 
         if args.n_prefixes and not args.gen_prefixes:

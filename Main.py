@@ -54,7 +54,7 @@ if __name__ == "__main__":
         prefixes = util.generateNotOverlappingPrefixes(
             numb=args.n_prefixes,
             asn=list(topology.ASes.keys()),
-            seed=15,
+            seed=args.seed,
         )
 
         util.generateDescriptionFile(env=env, prefixToAsn=prefixes)
