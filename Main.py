@@ -10,6 +10,7 @@ import time
 import random
 
 from scripts import EnvironmentHandler, HelperProxy
+from scripts.log import PerformanceTracker
 
 
 def generate_random_prefix():
@@ -59,21 +60,32 @@ if __name__ == "__main__":
 
         util.generateDescriptionFile(env=env, prefixToAsn=prefixes)
 
-    mongoPid = util.runMongoDB(env=env)
-    print(f"MongoDB PID: {mongoPid}")
+        util.decouplePrefixFile(env)
 
-    engine = Engine(env=env)
-    if not args.new_db and env.getDbDirName():
-        util.resumeFromOldDB(env=env, engine=engine)
+    mongoPid = None
 
-    util.createNewExperiment(env)
+    try:
+        mongoPid = util.runMongoDB(env=env)
+        print(f"MongoDB PID: {mongoPid}")
 
-    engine.run(topology)
+        engine = Engine(env=env)
+        if not args.new_db and env.getDbDirName():
+            util.resumeFromOldDB(env=env, engine=engine)
 
-    util.decouplePrefixFile(env)
+        util.createNewExperiment(env)
 
-    util.extractBestRoutes(
-        topology=topology,
-        engine=engine,
-        env=env,
-    )
+        with PerformanceTracker(env=env, topology=topology):
+            engine.run(topology)
+
+            if args.best_routes:
+                util.extractBestRoutes(
+                    topology=topology,
+                    engine=engine,
+                    env=env,
+                )
+    finally:
+        if mongoPid and not args.test:
+            util.killMongoDB(pidPath=env.getDbDirPath() / "mongod.pid")
+            env.setMongoPid(None)
+        elif mongoPid:
+            print(f"Test mode enabled; MongoDB remains running with PID {mongoPid}")

@@ -11,12 +11,13 @@
     "descriptionFilePath": "description/description_1.txt",
 
     "prefixesFilePath": "prefixes.txt",
-    "bestRoutesFilePath": "bestRoutes/bestRoutes.json"
+    "bestRoutesFilePath": "bestRoutes/bestRoutes.parquet"
   },
 
   "Setting": {
     "threadNum": 32,
     "batchSize": 3,
-    "cacheDbSizeGb": 40
+    "cacheDbSizeGb": 40,
+    "sampleIntervalSec": 60
   }
 }

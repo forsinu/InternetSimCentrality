@@ -2,3 +2,5 @@ pytest-shutil
 Cython
 setuptools
 pymongo
+psutil
+pyarrow

@@ -97,5 +97,12 @@ class EnvironmentHandler:
     def getExperimentBestRoutePaths(self) -> Path:
         return self.getExperimentDirPath() / self.getExperimentPaths().get(
             "bestRoutesFilePath",
-            "bestRoutes/bestRoutes.json",
+            "bestRoutes/bestRoutes.parquet",
         )
+
+    def getExperimentLogPath(self) -> Path:
+        logs = self.getExperimentDirStructure().get("dir", {}).get(
+            "logsDirPath",
+            "logs",
+        )
+        return self.getExperimentDirPath() / logs

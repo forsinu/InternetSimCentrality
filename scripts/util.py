@@ -1,6 +1,4 @@
-from collections import defaultdict
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 from uuid import uuid4
 import os
@@ -130,6 +128,13 @@ class HelperProxy:
 
         def draw(stdscr):
             curses.curs_set(0)
+            selectedAttr = curses.A_REVERSE
+            if curses.has_colors():
+                curses.start_color()
+                curses.use_default_colors()
+                curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)
+                selectedAttr = curses.color_pair(1)
+
             index = 0
 
             while True:
@@ -155,7 +160,19 @@ class HelperProxy:
                     itemIndex = start + offset
                     marker = "> " if itemIndex == index else "  "
                     label = f"{marker}{dbPath.name}"
-                    stdscr.addstr(row, 0, label[: max(0, width - 1)])
+                    maxWidth = max(0, width - 1)
+                    if maxWidth == 0:
+                        continue
+
+                    if itemIndex == index:
+                        stdscr.addstr(
+                            row,
+                            0,
+                            label[:maxWidth].ljust(maxWidth),
+                            selectedAttr,
+                        )
+                    else:
+                        stdscr.addstr(row, 0, label[:maxWidth])
 
                 key = stdscr.getch()
                 if key in (curses.KEY_UP, ord("k")):
@@ -457,18 +474,27 @@ class HelperProxy:
 
         parser.add_argument("--seed", type=int, default=14)
 
+        parser.add_argument("--best-routes", action="store_true")
+
+        parser.add_argument(
+            "--test",
+            action="store_true",
+            help="Keep MongoDB running after the program exits.",
+        )
+
         args = parser.parse_args()
 
         if args.n_prefixes and not args.gen_prefixes:
-            raise argparse.ArgumentError(
-                message="Use --numb-prefixes with --gen-prefixes"
-            )
+            parser.error("Use --n-prefixes with --gen-prefixes")
 
-        return parser.parse_args()
+        return args
 
     @staticmethod
     def decouplePrefixFile(env: EnvironmentHandler):
         prefixesFilePath = env.getPrefixesFilePath()
+
+        if not prefixesFilePath.exists():
+            return
 
         if shutil.which("sort") is None:
             raise RuntimeError("sort executable not found in PATH")
@@ -483,11 +509,13 @@ class HelperProxy:
 
     @staticmethod
     def extractBestRoutes(topology, env: EnvironmentHandler, engine: Engine):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
         inputPrefixesPath = env.getPrefixesFilePath()
 
-        inputStream = inputPrefixesPath.open("r")
-        prefixes = [line.strip() for line in inputStream.readlines()]
-        inputStream.close()
+        with inputPrefixesPath.open("r", encoding="utf-8") as inputStream:
+            prefixes = [line.strip() for line in inputStream if line.strip()]
 
         if not prefixes or not topology.ASes:
             print("[-] Error: Prefixes list or Topology ASes are empty.")
@@ -503,85 +531,76 @@ class HelperProxy:
         bs = engine.batchSize if engine.batchSize != -1 else len(prefixes)
 
         bestRouterOutPath = env.getExperimentBestRoutePaths()
+        if bestRouterOutPath.suffix != ".parquet":
+            bestRouterOutPath = bestRouterOutPath.with_suffix(".parquet")
 
         parentDir = bestRouterOutPath.parent
         parentDir.mkdir(exist_ok=True, parents=True)
 
-        fileStem = bestRouterOutPath.stem
-        fileSuffix = bestRouterOutPath.suffix
+        schema = pa.schema(
+            [
+                ("ASN", pa.int64()),
+                ("PREFIX", pa.string()),
+                ("AS_PATH", pa.string()),
+            ]
+        )
 
-        fileCount = 1
-        maxFileSize = 200 * 1024 * 1024
+        rowCount = 0
+        with pq.ParquetWriter(
+            bestRouterOutPath,
+            schema=schema,
+            compression="zstd",
+        ) as writer:
+            for idx in range(0, len(prefixes), bs):
+                chunk = prefixes[idx : idx + bs]
 
-        bestRoutes = defaultdict(dict)
-
-        for idx in range(0, len(prefixes), bs):
-            chunk = prefixes[idx : idx + bs]
-
-            for aut in topology.ASes:
-                engine.scheduler.push(("Fetch", aut, chunk))
-
-            if bs != -1:
-                engine.prefixInMem = set(chunk)
-                engine.prefixInDB.difference_update(engine.prefixInMem)
-
-            engine.scheduler.process(engine.threadNum)
-
-            for aut in topology.ASes:
-                for prefix in chunk:
-                    try:
-                        routeInfo = topology.ASes[aut].getBestRoute(prefix)
-                        if routeInfo is not None:
-                            bestRoutes[aut][prefix] = routeInfo.ASPath
-                    except AttributeError:
-                        pass
-
-            if bestRoutes:
-                # Convert to JSON text first, so we can check its size.
-                jsonContent = json.dumps(
-                    bestRoutes,
-                    indent=2,
-                )
-
-                serialized_size = len(jsonContent.encode("utf-8"))
-
-                if serialized_size >= maxFileSize:
-                    currOutPath = parentDir / f"{fileCount:02d}_{fileStem}.{fileSuffix}"
-
-                    with currOutPath.open("w", encoding="utf-8") as outputFile:
-                        outputFile.write(jsonContent)
-
-                    print(
-                        f"[+] File limit reached. Written {currOutPath} "
-                        f"({serialized_size / (1024 * 1024):.2f} MB)"
-                    )
-
-                    fileCount += 1
-                    bestRoutes = defaultdict(dict)
-
-            if engine.batchSize != -1:
                 for aut in topology.ASes:
-                    engine.scheduler.push(("Store", aut))
+                    engine.scheduler.push(("Fetch", aut, chunk))
+
+                if engine.batchSize != -1:
+                    engine.prefixInMem = set(chunk)
+                    engine.prefixInDB.difference_update(engine.prefixInMem)
+
                 engine.scheduler.process(engine.threadNum)
 
-                engine.prefixInDB.update(engine.prefixInMem)
-                engine.prefixInMem.clear()
+                asns = []
+                routePrefixes = []
+                asPaths = []
 
-        # Write any remaining data left over in the final iteration
-        if bestRoutes:
-            # Convert to JSON text first, so we can check its size.
-            jsonContent = json.dumps(
-                bestRoutes,
-                indent=2,
-            )
+                for aut in topology.ASes:
+                    for prefix in chunk:
+                        try:
+                            routeInfo = topology.ASes[aut].getBestRoute(prefix)
+                        except AttributeError:
+                            continue
 
-            currOutPath = parentDir / f"{fileCount:02d}_{fileStem}.{fileSuffix}"
+                        if routeInfo is None:
+                            continue
 
-            with currOutPath.open("w", encoding="utf-8") as outputFile:
-                outputFile.write(jsonContent)
+                        asns.append(int(aut))
+                        routePrefixes.append(prefix)
+                        asPaths.append(routeInfo.ASPath)
 
-            print(
-                f"[+] Batch extraction finished. Written final file {currOutPath} ({serialized_size / (1024 * 1024):.2f} MB)"
-            )
+                if asns:
+                    table = pa.table(
+                        {
+                            "ASN": asns,
+                            "PREFIX": routePrefixes,
+                            "AS_PATH": asPaths,
+                        },
+                        schema=schema,
+                    )
+                    writer.write_table(table)
+                    rowCount += len(asns)
 
-        print("[+] Batch extraction completed successfully.")
+                if engine.batchSize != -1:
+                    for aut in topology.ASes:
+                        engine.scheduler.push(("Store", aut))
+                    engine.scheduler.process(engine.threadNum)
+
+                    engine.prefixInDB.update(engine.prefixInMem)
+                    engine.prefixInMem.clear()
+
+        print(
+            f"[+] Batch extraction completed successfully. Written {rowCount} rows to {bestRouterOutPath}"
+        )

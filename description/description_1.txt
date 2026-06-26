@@ -1,7 +1,7 @@
-AS 57675 announce 9.222.136.0/24;
-AS 57512 announce 94.176.69.0/24;
-AS 198649 announce 116.4.53.0/24;
-AS 131607 announce 178.59.193.0/24;
-AS 132290 announce 245.155.167.0/24;
+AS 205171 announce 22.52.16.0/24;
+AS 59823 announce 88.136.111.0/24;
+AS 36774 announce 100.150.28.0/24;
+AS 140731 announce 140.81.135.0/24;
+AS 264712 announce 237.96.243.0/24;
 Simulate;
 Store;
