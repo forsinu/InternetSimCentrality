@@ -45,6 +45,10 @@ if __name__ == "__main__":
     util = HelperProxy()
     args = util.parserArgs()
 
+    if args.total_as:
+        print(f"[+] The total number of AS is: {len(topology.ASes.keys())}")
+        exit(0)
+
     if args.new_db:
         util.createNewDB(env=env)
 

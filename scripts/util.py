@@ -482,6 +482,8 @@ class HelperProxy:
             help="Keep MongoDB running after the program exits.",
         )
 
+        parser.add_argument("--total-as", action="store_true")
+
         args = parser.parse_args()
 
         if args.n_prefixes and not args.gen_prefixes:
