@@ -15,7 +15,9 @@ ulimit -n 131072
 SCRIPT_FILEPATH=$(realpath $0)
 
 # Get the Absolute Path of the Project Directory
-ROOT_DIR=$(dirname "$SCRIPT_FILEPATH")
+# ROOT_DIR=$(dirname "$SCRIPT_FILEPATH")
+ROOT_DIR="${HOME%/}/InternetSimCentrality"
+
 
 VENV_DIR="${ROOT_DIR%/}/.venv"
 source "${VENV_DIR%/}/bin/activate"

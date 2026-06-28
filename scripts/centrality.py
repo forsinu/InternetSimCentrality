@@ -458,9 +458,9 @@ def _buildRunOutputPath(outputCSVPath: Path, runIndex: int, runCount: int) -> Pa
     )
 
 
-def _buildSampledOutputPath(outputCSVPath: Path, sampleRows: int) -> Path:
+def _buildSampledOutputPath(outputCSVPath: Path, sampleLabel: int | str) -> Path:
     return outputCSVPath.with_name(
-        f"{outputCSVPath.stem}_sampled_{sampleRows}_prefixes{outputCSVPath.suffix}"
+        f"{outputCSVPath.stem}_sampled_{sampleLabel}_prefixes{outputCSVPath.suffix}"
     )
 
 
@@ -693,12 +693,21 @@ def parseArgs(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=100_000)
-    parser.add_argument(
+    sampleGroup = parser.add_mutually_exclusive_group()
+    sampleGroup.add_argument(
         "--sample-rows",
         "--sample-paths",
         dest="sample_rows",
         type=int,
         help="Randomly select N paths and compute centrality only on them.",
+    )
+    sampleGroup.add_argument(
+        "--all-paths",
+        action="store_true",
+        help=(
+            "Compute centrality using every path and write an output name "
+            "containing 'all'."
+        ),
     )
     parser.add_argument(
         "--sample-runs",
@@ -730,7 +739,9 @@ def parseArgs(argv: list[str] | None = None) -> argparse.Namespace:
     if args.sample_runs <= 0:
         parser.error("--sample-runs/--runs must be greater than 0")
     if args.sample_runs > 1 and args.sample_rows is None:
-        parser.error("--sample-runs/--runs requires --sample-rows/--sample-paths")
+        parser.error(
+            "--sample-runs/--runs can only be used with --sample-rows/--sample-paths"
+        )
     if args.memory_interval <= 0:
         parser.error("--memory-interval must be greater than 0")
 
@@ -751,6 +762,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.sample_rows is not None:
         outputCSVPath = _buildSampledOutputPath(outputCSVPath, args.sample_rows)
+    elif args.all_paths:
+        outputCSVPath = _buildSampledOutputPath(outputCSVPath, "all")
 
     logPath = None
     if experimentDir:

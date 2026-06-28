@@ -15,9 +15,9 @@
   },
 
   "Setting": {
-    "threadNum": 32,
-    "batchSize": 3,
-    "cacheDbSizeGb": 40,
-    "sampleIntervalSec": 60
+    "threadNum": 16,
+    "batchSize": 256,
+    "cacheDbSizeGb": 64,
+    "sampleIntervalSec": 120
   }
 }
