@@ -467,6 +467,7 @@ def _buildSampledOutputPath(outputCSVPath: Path, sampleRows: int) -> Path:
 def _writeAverageCentralityCsv(
     outputCSVPath: Path,
     runs: list[list[dict[str, float | int | str]]],
+    sampleRows: int,
 ) -> None:
     runCount = len(runs)
     presenceSum = Counter()
@@ -490,6 +491,8 @@ def _writeAverageCentralityCsv(
     logger.info("Writing averaged centrality results to: %s", outputCSVPath)
     outputCSVPath.parent.mkdir(parents=True, exist_ok=True)
     with outputCSVPath.open("w", newline="", encoding="utf-8") as csvFile:
+        csvFile.write(f"# sample_paths: {sampleRows}\n")
+        csvFile.write(f"# sample_runs: {runCount}\n")
         writer = csv.writer(csvFile)
         writer.writerow(
             [
@@ -528,6 +531,7 @@ def runRepeatedCentrality(
 ) -> None:
     outputCSVPath = outputCSVPath.expanduser()
     runMetrics = []
+    runOutputPaths = []
 
     for runIndex in range(1, sampleRuns + 1):
         runSeed = None if sampleSeed is None else sampleSeed + runIndex - 1
@@ -554,6 +558,7 @@ def runRepeatedCentrality(
             continue
 
         runMetrics.append(metricRows)
+        runOutputPaths.append(runOutputPath)
 
     if not runMetrics:
         logger.warning(
@@ -561,7 +566,19 @@ def runRepeatedCentrality(
         )
         return
 
-    _writeAverageCentralityCsv(outputCSVPath, runMetrics)
+    _writeAverageCentralityCsv(outputCSVPath, runMetrics, sampleRows)
+
+    for runOutputPath in runOutputPaths:
+        try:
+            runOutputPath.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning(
+                "Unable to remove sampled run CSV %s: %s",
+                runOutputPath,
+                exc,
+            )
 
 
 def _resolveExperimentDir(env: EnvironmentHandler, experiment: str | None) -> Path:

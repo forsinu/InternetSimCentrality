@@ -3,3 +3,4 @@
 **/build
 **/*.cpp
 **/__pycache__/
+**/*.out

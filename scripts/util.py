@@ -510,7 +510,7 @@ class HelperProxy:
             )
 
     @staticmethod
-    def extractBestRoutes(topology, env: EnvironmentHandler, engine: Engine):
+    def extractBestRoutes(topology, env: EnvironmentHandler, engine: "Engine"):
         import pyarrow as pa
         import pyarrow.parquet as pq
 

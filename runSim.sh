@@ -9,6 +9,8 @@
 
 set -euo pipefail
 
+ulimit -n 131072
+
 # Get the Absolute Path of the setup Script
 SCRIPT_FILEPATH=$(realpath $0)
 
